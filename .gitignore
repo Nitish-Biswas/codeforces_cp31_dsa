@@ -1,0 +1,11 @@
+
+*
+
+
+!**/*.cpp
+
+
+!*/
+
+!.gitignore
+!.gitattributes
