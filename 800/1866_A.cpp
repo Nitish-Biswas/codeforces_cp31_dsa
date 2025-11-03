@@ -8,7 +8,7 @@ int main() {
 
     cin >> n;
 
-    long long ans = INFINITY;
+    long long ans = 1e18;
     long long x;
     for(int i=0; i<n; i++){
         cin >> x;
