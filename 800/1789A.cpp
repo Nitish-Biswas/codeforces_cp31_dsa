@@ -1,4 +1,5 @@
 #include "bits/stdc++.h"
+#include <numeric>
 #define uint unsigned long long
 #define vi vector<int>
 #define vvi vector<vi >
@@ -13,6 +14,7 @@
 #define mxe(v) *max_element(v.begin(),v.end()) // find max element in vector
 #define mne(v) *min_element(v.begin(),v.end()) // find min element in vector
 #define unq(v) v.resize(distance(v.begin(), unique(v.begin(), v.end())));
+
 // make sure to sort before applying unique // else only consecutive duplicates would be removed
 #define bin(x,y) bitset<y>(x)
 using namespace std;
@@ -311,13 +313,35 @@ uint nCr(int n, int r, int p=MOD) // faster calculation..
 // ==================================== SOLUTION =======================================================//
 
 void solve(){
-    int n,m;
-    cin>>n;
-    vi a(n);
-    cin>>a;
-    
-    
+
+    long long n; // Length of the array
+    cin >> n;
+    vector<long long> a(n); // Array to store the elements
+    for (int i = 0; i < n; i++) // Loop to input elements into the array
+        cin >> a[i];
+    // Inputs are now stored in array 'a'
+
+    int flag = 0; // Flag to check if a beautiful array can be formed
+    for (int i = 0; i < n; i++) // Loop through each element
+    {
+        for (int j = i + 1; j < n; j++) // Loop to check pairs of elements
+        {
+            // Check if the gcd of any pair of elements is less than or equal to 2
+            if (gcd(a[i], a[j]) <= 2) // gcd calculation
+            {
+                flag = 1; // Set flag to 1 if condition is met
+            }
+        }
+    }
+
+    // If no such pair is found, flag remains 0
+    // If flag is 0, print "NO", else print "YES"
+    if (flag == 0)
+        cout << "No" << endl;
+    else
+        cout << "Yes" << endl;
 }
+
 
 
 

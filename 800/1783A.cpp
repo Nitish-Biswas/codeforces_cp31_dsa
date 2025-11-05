@@ -13,7 +13,6 @@
 #define mxe(v) *max_element(v.begin(),v.end()) // find max element in vector
 #define mne(v) *min_element(v.begin(),v.end()) // find min element in vector
 #define unq(v) v.resize(distance(v.begin(), unique(v.begin(), v.end())));
-#define gcd(x,y) std::gcd((long long)(x), (long long)(y))
 // make sure to sort before applying unique // else only consecutive duplicates would be removed
 #define bin(x,y) bitset<y>(x)
 using namespace std;
@@ -312,29 +311,25 @@ uint nCr(int n, int r, int p=MOD) // faster calculation..
 // ==================================== SOLUTION =======================================================//
 
 void solve(){
-
-    int n;
+    int n,m;
     cin>>n;
-    string a;
+    vi a(n);
     cin>>a;
-    
-    if ((int)a.size() != n) {  // Safety check: avoid UB
-        cout << "Invalid input: string length != n\n";
+    srt(a);
+    if (a[0]==a[n-1]){
+        cout << "NO" << "\n";
         return;
     }
-    int i=0,j=n-1, res =0;
-    debug(n);
-
-    while(i<j){
-        if(a[i]==a[j]) break;
-        i++;
-        j--;
-        res+=2;
+    else{
+        cout << "YES" << "\n";
+        cout << a[n-1] << " ";
+        rep(i,0,n-2){
+            cout << a[i] << " ";
+        }
+        cout << "\n";
     }
-    cout << n - res << "\n";
-
+    
 }
-
 
 
 

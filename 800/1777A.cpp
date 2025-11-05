@@ -1,4 +1,6 @@
 #include "bits/stdc++.h"
+#include <numeric>
+#define int long long
 #define uint unsigned long long
 #define vi vector<int>
 #define vvi vector<vi >
@@ -13,7 +15,6 @@
 #define mxe(v) *max_element(v.begin(),v.end()) // find max element in vector
 #define mne(v) *min_element(v.begin(),v.end()) // find min element in vector
 #define unq(v) v.resize(distance(v.begin(), unique(v.begin(), v.end())));
-#define gcd(x,y) std::gcd((long long)(x), (long long)(y))
 // make sure to sort before applying unique // else only consecutive duplicates would be removed
 #define bin(x,y) bitset<y>(x)
 using namespace std;
@@ -48,7 +49,7 @@ typedef long double lld;
 #endif
 
 void _print(ll t) {cerr << t;}
-void _print(int t) {cerr << t;}
+// void _print(int t) {cerr << t;}
 void _print(string t) {cerr << t;}
 void _print(char t) {cerr << t;}
 void _print(lld t) {cerr << t;}
@@ -312,51 +313,46 @@ uint nCr(int n, int r, int p=MOD) // faster calculation..
 // ==================================== SOLUTION =======================================================//
 
 void solve(){
-
-    int n;
+    int n,m;
     cin>>n;
-    string a;
+    vi a(n);
     cin>>a;
     
-    if ((int)a.size() != n) {  // Safety check: avoid UB
-        cout << "Invalid input: string length != n\n";
-        return;
+    int even=0,odd=0;
+    rep(i,1,n-1){
+        
+        if(a[i]%2==0){
+            debug(a[i-1]);
+            if (a[i-1]%2==0) even++;
+        }
+        else{
+            if(a[i-1]%2!=0) odd++;
+        }
     }
-    int i=0,j=n-1, res =0;
-    debug(n);
+    
 
-    while(i<j){
-        if(a[i]==a[j]) break;
-        i++;
-        j--;
-        res+=2;
-    }
-    cout << n - res << "\n";
-
+    cout << even + odd << "\n";
+    
+    
 }
-
-
-
 
 
 
 #ifdef DEBUG_LOCAL
 #include <fstream>
 
+#pragma push_macro("int")
+#undef int   // prevent #define int long long from breaking overrides
+
 class InputTeeStreambuf : public std::streambuf {
 private:
     std::streambuf* source;
     std::ofstream* logFile;
-    
 public:
-    InputTeeStreambuf(std::streambuf* source, std::ofstream* logFile) 
+    InputTeeStreambuf(std::streambuf* source, std::ofstream* logFile)
         : source(source), logFile(logFile) {}
-    
 protected:
-    virtual int underflow() override {
-        return source->sgetc();
-    }
-    
+    virtual int underflow() override { return source->sgetc(); }
     virtual int uflow() override {
         int c = source->sbumpc();
         if (c != EOF && logFile && logFile->is_open()) {
@@ -366,7 +362,11 @@ protected:
         return c;
     }
 };
+
+#pragma pop_macro("int")  // restore int = long long
 #endif
+
+
 
 // #region [TEMPLATE] Lazy Segment Tree
 int32_t main(){

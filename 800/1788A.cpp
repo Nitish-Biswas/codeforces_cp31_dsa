@@ -1,4 +1,5 @@
 #include "bits/stdc++.h"
+// #define int long long
 #define uint unsigned long long
 #define vi vector<int>
 #define vvi vector<vi >
@@ -13,7 +14,6 @@
 #define mxe(v) *max_element(v.begin(),v.end()) // find max element in vector
 #define mne(v) *min_element(v.begin(),v.end()) // find min element in vector
 #define unq(v) v.resize(distance(v.begin(), unique(v.begin(), v.end())));
-#define gcd(x,y) std::gcd((long long)(x), (long long)(y))
 // make sure to sort before applying unique // else only consecutive duplicates would be removed
 #define bin(x,y) bitset<y>(x)
 using namespace std;
@@ -46,7 +46,6 @@ typedef long double lld;
 #else
 #define debug(x)
 #endif
-
 void _print(ll t) {cerr << t;}
 void _print(int t) {cerr << t;}
 void _print(string t) {cerr << t;}
@@ -312,29 +311,27 @@ uint nCr(int n, int r, int p=MOD) // faster calculation..
 // ==================================== SOLUTION =======================================================//
 
 void solve(){
-
-    int n;
+    ll n,m;
     cin>>n;
-    string a;
+    vi a(n);
     cin>>a;
+    int c = 0;
+    fr(i,n){
+        if (a[i]==2) c++;
+    }
+    if (c%2==0){
+        int x = 0;
+        fr(i,n){
+            if (a[i]==2) x++;
+            if(x==c/2){
+                cout<<i+1<<"\n";
+                return;
+            }
+        }
+    }
+    else cout<<-1<<"\n";
     
-    if ((int)a.size() != n) {  // Safety check: avoid UB
-        cout << "Invalid input: string length != n\n";
-        return;
-    }
-    int i=0,j=n-1, res =0;
-    debug(n);
-
-    while(i<j){
-        if(a[i]==a[j]) break;
-        i++;
-        j--;
-        res+=2;
-    }
-    cout << n - res << "\n";
-
 }
-
 
 
 
