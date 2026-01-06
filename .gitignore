@@ -1,6 +1,8 @@
 
 *
+!.github
 
+!**/*deploy_to_server.yml
 
 !**/*.cpp
 
