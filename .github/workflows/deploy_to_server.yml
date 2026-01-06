@@ -144,12 +144,14 @@ jobs:
           INSTANCE_ID="${{ steps.instance_lookup.outputs.instance_id }}"
 
           aws ssm send-command \
-            --instance-ids "$INSTANCE_ID" \
+            --instance-ids "${{ steps.find.outputs.instance_id }}" \
             --document-name "AWS-RunShellScript" \
-            --comment "Automated CI deploy from GitHub Actions" \
-            --parameters commands="aws s3 cp s3://${ARTIFACT_BUCKET}/${INSTANCE_TAG_VALUE}/${{ github.run_id }}/artifact.tar.gz /tmp/artifact.tar.gz && \
-mkdir -p ${DEPLOY_PATH} && \
-tar -xzf /tmp/artifact.tar.gz -C ${DEPLOY_PATH} && \
-chown -R ec2-user:ec2-user ${DEPLOY_PATH}" \
-            --timeout-seconds 600 \
-            --region ${AWS_REGION}
+            --comment "CI deploy from GitHub Actions" \
+            --parameters commands="[
+              \"aws s3 cp s3://nitish-ci-artifacts-738928894374/artifacts/${{ github.run_id }}/artifact.tar.gz /tmp/artifact.tar.gz\",
+              \"mkdir -p /home/ec2-user/app\",
+              \"tar -xzf /tmp/artifact.tar.gz -C /home/ec2-user/app\",
+              \"chown -R ec2-user:ec2-user /home/ec2-user/app\",
+              \"echo deployed-by-github-actions-${{ github.run_id }} > /home/ec2-user/app/DEPLOYED\"
+            ]" \
+            --timeout-seconds 600
