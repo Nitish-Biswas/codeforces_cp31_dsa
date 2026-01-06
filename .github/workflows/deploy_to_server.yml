@@ -39,6 +39,7 @@ jobs:
       - name: Configure AWS via OIDC
         uses: aws-actions/configure-aws-credentials@v3
         with:
+          role-to-assume: arn:aws:iam::738928894374:role/nitish_github_actions
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Get EC2 instance details
