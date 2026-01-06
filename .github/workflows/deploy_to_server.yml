@@ -1,4 +1,4 @@
-name: Deploy to EC2 (output_json_server) via OIDC + SSM
+name: Secure CI Deploy with EC2 Start Check
 
 on:
   push:
@@ -10,198 +10,146 @@ permissions:
   id-token: write
 
 env:
-  AWS_REGION: ap-south-1                    # change region if needed
-  ARTIFACT_BUCKET: nitish-ci-artifacts-738928894374   # replace with your bucket
-  INSTANCE_TAG_NAME: output_json_server     # tag value to find instance
-  DEPLOY_PATH: /home/ec2-user/app           # target path on instance
+  AWS_REGION: ap-south-1
+  ARTIFACT_BUCKET: nitish-ci-artifacts-738928894374
+  INSTANCE_TAG_VALUE: output_json_server
+  DEPLOY_PATH: /home/ec2-user/app
 
 jobs:
-  build-and-deploy:
+  deploy:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
-      - name: Create artifact (clean staging + tar)
+      - name: Create artifact
+        shell: bash
         run: |
           set -euo pipefail
+
           BUILD_DIR="/tmp/build"
           rm -rf "$BUILD_DIR"
           mkdir -p "$BUILD_DIR"
 
           rsync -a --delete --exclude='.git' --exclude='.github' ./ "$BUILD_DIR/"
 
-          TAR_FILE="artifact.tar.gz"
-          tar -C "$BUILD_DIR" -czf "$TAR_FILE" .
-          echo "Created $TAR_FILE (size: $(stat -c%s $TAR_FILE) bytes)"
-        shell: bash
+          tar -czf artifact.tar.gz -C "$BUILD_DIR" .
 
-      - name: Configure AWS credentials via OIDC (assume role)
-        uses: aws-actions/configure-aws-credentials@v2
+      - name: Configure AWS via OIDC
+        uses: aws-actions/configure-aws-credentials@v3
         with:
-          role-to-assume: arn:aws:iam::738928894374:role/nitish_github_actions   # <-- replace if needed
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Upload artifact to S3
-        run: |
-          set -euo pipefail
-          TAR_FILE="artifact.tar.gz"
-          DEST="s3://${ARTIFACT_BUCKET}/artifacts/${{ github.run_id }}/$TAR_FILE"
-          echo "Uploading $TAR_FILE to $DEST"
-          aws s3 cp "$TAR_FILE" "$DEST"
-          echo "artifact_location=$DEST" >> $GITHUB_OUTPUT
+      - name: Get EC2 instance details
+        id: instance_lookup
         shell: bash
-
-      - name: Find EC2 instance id by tag (output_json_server)
-        id: find_instance
         run: |
           set -euo pipefail
-          # find the first instance with the Name tag value
-          INST_ID=$(aws ec2 describe-instances \
-            --filters "Name=tag:Name,Values=${INSTANCE_TAG_NAME}" \
-            --query "Reservations[].Instances[0].InstanceId" --output text --region ${AWS_REGION})
 
-          if [ -z "$INST_ID" ] || [ "$INST_ID" = "None" ]; then
-            echo "No instance found with tag Name=${INSTANCE_TAG_NAME}"
+          INST=$(aws ec2 describe-instances \
+            --filters "Name=tag:Name,Values=${INSTANCE_TAG_VALUE}" \
+            --query "Reservations[].Instances[0]" \
+            --output json \
+            --region ${AWS_REGION})
+
+          if [ -z "$INST" ] || [ "$INST" = "null" ]; then
+            echo "No EC2 instance found with tag Name=${INSTANCE_TAG_VALUE}"
             exit 1
           fi
 
-          echo "Found instance: $INST_ID"
-          echo "instance_id=$INST_ID" >> $GITHUB_OUTPUT
-        shell: bash
+          INSTANCE_ID=$(echo "$INST" | jq -r '.InstanceId')
+          CURRENT_STATE=$(echo "$INST" | jq -r '.State.Name')
+
+          echo "instance_id=$INSTANCE_ID" >> $GITHUB_OUTPUT
+          echo "state=$CURRENT_STATE" >> $GITHUB_OUTPUT
 
       - name: Ensure instance is running (start if stopped) & show state
-        id: ensure_running
+        shell: bash
         run: |
           set -euo pipefail
-          INST="${{ steps.find_instance.outputs.instance_id }}"
-          STATE=$(aws ec2 describe-instances --instance-ids "$INST" --query "Reservations[0].Instances[0].State.Name" --output text --region ${AWS_REGION})
-          echo "Instance $INST state: $STATE"
 
-          if [ "$STATE" != "running" ]; then
-            echo "Attempting to start instance $INST..."
-            aws ec2 start-instances --instance-ids "$INST" --region ${AWS_REGION}
-            echo "Waiting for instance to reach 'running' state..."
-            aws ec2 wait instance-running --instance-ids "$INST" --region ${AWS_REGION}
-            echo "Instance is now running."
+          INSTANCE_ID="${{ steps.instance_lookup.outputs.instance_id }}"
+          STATE="${{ steps.instance_lookup.outputs.state }}"
+
+          echo "Current EC2 state: $STATE"
+
+          if [ "$STATE" = "stopped" ]; then
+            echo "Instance is stopped – starting it..."
+            aws ec2 start-instances --instance-ids "$INSTANCE_ID" --region ${AWS_REGION}
+          else
+            echo "Instance already in state: $STATE"
           fi
 
-          # Output final state
-          FINAL_STATE=$(aws ec2 describe-instances --instance-ids "$INST" --query "Reservations[0].Instances[0].State.Name" --output text --region ${AWS_REGION})
-          echo "final_state=$FINAL_STATE" >> $GITHUB_OUTPUT
+      - name: Wait for RUNNING state
         shell: bash
-
-      - name: Wait for SSM agent to register (poll; timeout 5 minutes)
-        id: wait_ssm
         run: |
           set -euo pipefail
-          INST="${{ steps.find_instance.outputs.instance_id }}"
-          echo "Waiting for SSM agent registration for instance $INST..."
-          # Try for up to 30 times (30 * 10s = 300s = 5 minutes)
-          MAX_RETRIES=30
-          SLEEP=10
-          COUNT=0
-          while [ $COUNT -lt $MAX_RETRIES ]; do
-            # Query SSM instance info list and filter by InstanceId
-            PING_STATUS=$(aws ssm describe-instance-information \
-              --filters "Key=InstanceIds,Values=$INST" \
+          INSTANCE_ID="${{ steps.instance_lookup.outputs.instance_id }}"
+
+          echo "Waiting for instance to reach RUNNING state..."
+
+          aws ec2 wait instance-running --instance-ids "$INSTANCE_ID" --region ${AWS_REGION}
+
+          FINAL_STATE=$(aws ec2 describe-instances \
+            --instance-ids "$INSTANCE_ID" \
+            --query "Reservations[].Instances[0].State.Name" \
+            --output text \
+            --region ${AWS_REGION})
+
+          echo "Final EC2 state: $FINAL_STATE"
+
+      - name: Upload artifact to S3
+        shell: bash
+        run: |
+          set -euo pipefail
+          INSTANCE_ID="${{ steps.instance_lookup.outputs.instance_id }}"
+
+          aws s3 cp artifact.tar.gz \
+            s3://${ARTIFACT_BUCKET}/${INSTANCE_TAG_VALUE}/${{ github.run_id }}/artifact.tar.gz \
+            --region ${AWS_REGION}
+
+      - name: Wait for SSM Agent to be online
+        shell: bash
+        run: |
+          set -euo pipefail
+          INSTANCE_ID="${{ steps.instance_lookup.outputs.instance_id }}"
+
+          echo "Waiting for SSM agent registration..."
+
+          for i in {1..30}; do
+            STATUS=$(aws ssm describe-instance-information \
+              --filters "Key=InstanceIds,Values=$INSTANCE_ID" \
               --query "InstanceInformationList[0].PingStatus" \
-              --output text --region ${AWS_REGION} 2>/dev/null || echo "None")
-            echo "Attempt $((COUNT+1)): SSM PingStatus = $PING_STATUS"
-            if [ "$PING_STATUS" = "Online" ]; then
-              echo "ssm_status=Online" >> $GITHUB_OUTPUT
+              --output text \
+              --region ${AWS_REGION} 2>/dev/null || echo "None")
+
+            echo "Attempt $i – SSM PingStatus: $STATUS"
+
+            if [ "$STATUS" = "Online" ]; then
+              echo "SSM Agent is ONLINE"
               exit 0
             fi
-            COUNT=$((COUNT+1))
-            sleep $SLEEP
+
+            sleep 10
           done
 
-          echo "SSM agent did not register within timeout. Last ping status: $PING_STATUS"
-          echo "ssm_status=NotRegistered" >> $GITHUB_OUTPUT
+          echo "SSM Agent did not come online in time."
           exit 1
-        shell: bash
 
-      - name: Send SSM command to download artifact & deploy
-        id: send_cmd
+      - name: Deploy to EC2 via SSM
+        shell: bash
         run: |
           set -euo pipefail
-          INST="${{ steps.find_instance.outputs.instance_id }}"
-          TAR_S3_PATH="s3://${ARTIFACT_BUCKET}/artifacts/${{ github.run_id }}/artifact.tar.gz"
-          echo "Deploying artifact from $TAR_S3_PATH to instance $INST"
+          INSTANCE_ID="${{ steps.instance_lookup.outputs.instance_id }}"
 
-          # Build JSON array of commands (must be valid JSON)
-          read -r -d '' COMMANDS <<'CMD' || true
-[
-  "aws s3 cp '"$TAR_S3_PATH"' /tmp/artifact.tar.gz",
-  "mkdir -p '"$DEPLOY_PATH"'",
-  "tar -xzf /tmp/artifact.tar.gz -C '"$DEPLOY_PATH"'",
-  "chown -R ec2-user:ec2-user '"$DEPLOY_PATH"'",
-  "echo deployed-by-github-actions-${GITHUB_RUN_ID} > '"$DEPLOY_PATH"'/DEPLOYED"
-]
-CMD
-
-          # Send the command
-          CMD_OUTPUT=$(aws ssm send-command \
-            --instance-ids "$INST" \
+          aws ssm send-command \
+            --instance-ids "$INSTANCE_ID" \
             --document-name "AWS-RunShellScript" \
-            --comment "CI deploy from GitHub Actions (run $GITHUB_RUN_ID)" \
-            --parameters commands="$COMMANDS" \
+            --comment "Automated CI deploy from GitHub Actions" \
+            --parameters commands="aws s3 cp s3://${ARTIFACT_BUCKET}/${INSTANCE_TAG_VALUE}/${{ github.run_id }}/artifact.tar.gz /tmp/artifact.tar.gz && \
+mkdir -p ${DEPLOY_PATH} && \
+tar -xzf /tmp/artifact.tar.gz -C ${DEPLOY_PATH} && \
+chown -R ec2-user:ec2-user ${DEPLOY_PATH}" \
             --timeout-seconds 600 \
-            --output json --region ${AWS_REGION})
-
-          COMMAND_ID=$(echo "$CMD_OUTPUT" | jq -r '.Command.CommandId')
-          if [ -z "$COMMAND_ID" ] || [ "$COMMAND_ID" = "null" ]; then
-            echo "Failed to send SSM command. Raw output:"
-            echo "$CMD_OUTPUT"
-            exit 1
-          fi
-          echo "ssm_command_id=$COMMAND_ID" >> $GITHUB_OUTPUT
-          echo "Sent command id: $COMMAND_ID"
-        shell: bash
-
-      - name: Poll SSM command status until success/failure (timeout 10 min)
-        run: |
-          set -euo pipefail
-          INST="${{ steps.find_instance.outputs.instance_id }}"
-          CMD_ID="${{ steps.send_cmd.outputs.ssm_command_id }}"
-          echo "Polling SSM command $CMD_ID on $INST..."
-
-          # Wait loop
-          MAX_RETRIES=60
-          SLEEP=10
-          COUNT=0
-          while [ $COUNT -lt $MAX_RETRIES ]; do
-            STATUS=$(aws ssm list-command-invocations --command-id "$CMD_ID" --details --instance-id "$INST" --query "CommandInvocations[0].Status" --output text --region ${AWS_REGION} 2>/dev/null || echo "Unknown")
-            echo "Attempt $((COUNT+1)): status=$STATUS"
-            case "$STATUS" in
-              Success)
-                echo "SSM command succeeded."
-                exit 0
-                ;;
-              Failed|Cancelled|TimedOut|Undeliverable|DeliveryTimedOut)
-                echo "SSM command failed with status: $STATUS"
-                aws ssm list-command-invocations --command-id "$CMD_ID" --details --instance-id "$INST" --output json --region ${AWS_REGION} || true
-                exit 1
-                ;;
-              InProgress|Pending|Delayed|)
-                # keep waiting
-                ;;
-              Unknown)
-                # might be not yet available
-                ;;
-            esac
-            COUNT=$((COUNT+1))
-            sleep $SLEEP
-          done
-
-          echo "Timed out waiting for SSM command to finish."
-          aws ssm list-command-invocations --command-id "$CMD_ID" --details --instance-id "$INST" --output json --region ${AWS_REGION} || true
-          exit 1
-        shell: bash
-
-      - name: Success message
-        if: success()
-        run: |
-          echo "Deployment finished successfully to instance ${{ steps.find_instance.outputs.instance_id }}."
+            --region ${AWS_REGION}
